@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>送貨小哥儀表板</title>
+</head>
+<body>
+    <h1>送貨小哥儀表板</h1>
+    <a href="/logout">登出</a>
+    <h2>待送訂單</h2>
+    <ul>
+        {% for order in orders %}
+        <li>訂單 ID: {{ order.id }} - 總金額: ${{ order.total_price }}
+            <form action="/accept_order" method="POST" style="display:inline;">
+                <input type="hidden" name="order_id" value="{{ order.id }}">
+                <button type="submit">接單</button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

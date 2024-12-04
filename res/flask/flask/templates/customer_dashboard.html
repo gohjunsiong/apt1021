@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>客戶儀表板</title>
+</head>
+<body>
+    <h1>客戶儀表板</h1>
+    <a href="/logout">登出</a>
+    <h2>菜單</h2>
+    <form action="/place_order" method="POST">
+        <ul>
+            {% for item in menu %}
+            <li>
+                {{ item.item_name }} - ${{ item.price }}
+                <label>數量：</label>
+                <input type="number" name="quantity_{{ item.id }}" min="0">
+            </li>
+            {% endfor %}
+        </ul>
+        <button type="submit">下單</button>
+    </form>
+</body>
+</html>
