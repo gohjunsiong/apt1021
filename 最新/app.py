@@ -231,6 +231,81 @@ def menu():
 
     return render_template('menu.html', menu_items=menu_items, merchant_orders=merchant_orders)
     
+# 删除菜品
+@app.route('/menu/delete/<int:item_id>', methods=['POST'])
+def delete_item(item_id):
+    if 'user_id' not in session or session['role'] != 'merchant':
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    conn.execute('DELETE FROM menu WHERE id = ? AND merchant_id = ?', (item_id, session['user_id']))
+    conn.commit()
+    conn.close()
+
+    flash('菜品已删除！', 'success')
+    return redirect(url_for('menu'))
+
+
+
+# 编辑菜品
+@app.route('/menu/edit/<int:item_id>', methods=['GET', 'POST'])
+def edit_item(item_id):
+    if 'user_id' not in session or session['role'] != 'merchant':
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    if request.method == 'POST':
+        item_name = request.form['item_name']
+        description = request.form['description']
+        price = float(request.form['price'])
+
+        conn.execute('UPDATE menu SET item_name = ?, description = ?, price = ? WHERE id = ? AND merchant_id = ?',(item_name, description, price, item_id, session['user_id']))
+        conn.commit()
+        conn.close()
+        flash('菜品更新成功！', 'success')
+        return redirect(url_for('menu'))
+
+    menu_item = conn.execute('SELECT * FROM menu WHERE id = ? AND merchant_id = ?',(item_id, session['user_id'])).fetchone()
+    conn.close()
+
+    return render_template('edit_item.html', item=menu_item)
+
+
+
+@app.route('/confirm_for_delivery/<int:order_id>', methods=['POST'])
+def confirm_for_delivery(order_id):
+    if 'user_id' not in session or session['role'] != 'merchant':
+        return redirect(url_for('login'))
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        # 獲取商家確認的訂單
+        order = cursor.execute('SELECT * FROM merchant_orders WHERE id = ?', (order_id,)).fetchone()
+        
+        if order is None:
+            flash('未找到訂單！', 'danger')
+            return redirect(url_for('menu'))
+
+        # 將訂單插入到外送訂單列表
+        cursor.execute('''
+            INSERT INTO delivery_orders (customer_id, merchant_id, delivery_person_id, item_id, status, price, item_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (order['customer_id'], order['merchant_id'], None, order['item_id'], '待配送', order['price'], order['item_name']))
+       
+        # 更新訂單為已通知外送員
+        cursor.execute('UPDATE merchant_orders SET delivery_status = "已通知" WHERE id = ?', (order_id,))
+        conn.commit()
+        flash('订单已确认并发送给外送小哥！', 'success')
+    except Exception as e:
+        flash(f'發生錯誤：{e}', 'danger')
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
+    return redirect(url_for('menu'))
 
 
 @app.route('/merchant_accept_order/<int:order_id>', methods=['POST'])
@@ -289,68 +364,13 @@ def merchant_reject_order(order_id):
 
 
 
-@app.route('/add_review/<int:order_id>', methods=['POST'])
-def add_review(order_id):
-    if 'user_id' not in session or session['role'] != 'customer':
-        return redirect(url_for('login'))
-
-    rating = request.form['rating']
-    comment = request.form['comment']
-    reviewed_user_id = request.form['reviewed_user_id']
-
-    if not reviewed_user_id:
-        flash('請選擇一個評論對象', 'danger')
-        return redirect(url_for('orders'))
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        # 插入評論
-        cursor.execute('''
-            INSERT INTO reviews (user_id, reviewed_user_id, order_id, rating, comment)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (session['user_id'], reviewed_user_id, order_id, rating, comment))
-
-        conn.commit()
-        flash('評論已提交。', 'success')
-    except sqlite3.Error as e:
-        flash(f'發生錯誤：{e}', 'danger')
-        print(f'SQLite Error: {e}')  # 打印錯誤信息到控制台
-        conn.rollback()
-    finally:
-        cursor.close()
-        conn.close()
-
-    return redirect(url_for('orders'))
-
-
-@app.route('/view_delivery_reviews/<int:user_id>', methods=['GET'])
-def view_delivery_reviews(user_id):
-    if 'user_id' not in session or session['role'] != 'delivery_person':
-        return redirect(url_for('login'))
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    reviews = cursor.execute('''
-        SELECT reviews.rating, reviews.comment, users.username, reviews.created_at
-        FROM reviews
-        JOIN users ON reviews.user_id = users.id
-        WHERE reviews.reviewed_user_id = ?
-    ''', (user_id,)).fetchall()
-
-    cursor.close()
-    conn.close()
-
-    return render_template('re.html', reviews=reviews)
 
 
 
 
 @app.route('/view_reviews/<int:user_id>', methods=['GET'])
 def view_reviews(user_id):
-    if 'user_id' not in session:
+    if 'user_id' not in session or session['role'] != 'merchant':
         return redirect(url_for('login'))
 
     conn = get_db_connection()
@@ -373,21 +393,30 @@ def view_reviews(user_id):
 
 
 
-# 删除菜品
-@app.route('/menu/delete/<int:item_id>', methods=['POST'])
-def delete_item(item_id):
-    if 'user_id' not in session or session['role'] != 'merchant':
+
+
+
+@app.route('/orders', methods=['GET', 'POST'])
+def orders():
+    if 'user_id' not in session or session['role'] != 'customer':
         return redirect(url_for('login'))
 
     conn = get_db_connection()
-    conn.execute('DELETE FROM menu WHERE id = ? AND merchant_id = ?', (item_id, session['user_id']))
-    conn.commit()
+    orders = conn.execute('''
+        SELECT orders.id AS id,
+               menu.item_name AS item_name,
+               menu.price AS price,
+               orders.status AS status
+        FROM orders
+        JOIN menu ON orders.item_id = menu.id
+        WHERE orders.customer_id = ?
+    ''', (session['user_id'],)).fetchall()
+
+    # 只計算未確認的訂單金額
+    total_price = sum(order['price'] for order in orders if order['status'] != '已確認')
+
     conn.close()
-
-    flash('菜品已删除！', 'success')
-    return redirect(url_for('menu'))
-
-
+    return render_template('orders.html', orders=orders, total_price=total_price)
 
 # 顾客下单功能
 @app.route('/place_order/<int:item_id>', methods=['POST'])
@@ -492,68 +521,99 @@ def confirm_order():
     flash('訂單已確認並通知商家！', 'success')
     return redirect(url_for('orders'))
 
-
-
-@app.route('/orders', methods=['GET', 'POST'])
-def orders():
+@app.route('/add_review/<int:order_id>', methods=['POST'])
+def add_review(order_id):
     if 'user_id' not in session or session['role'] != 'customer':
         return redirect(url_for('login'))
 
+    rating = request.form['rating']
+    comment = request.form['comment']
+    reviewed_user_id = request.form['reviewed_user_id']
+
+    if not reviewed_user_id:
+        flash('請選擇一個評論對象', 'danger')
+        return redirect(url_for('orders'))
+
     conn = get_db_connection()
-    orders = conn.execute('''
-        SELECT orders.id AS id,
-               menu.item_name AS item_name,
-               menu.price AS price,
-               orders.status AS status
-        FROM orders
-        JOIN menu ON orders.item_id = menu.id
-        WHERE orders.customer_id = ?
-    ''', (session['user_id'],)).fetchall()
+    cursor = conn.cursor()
 
-    # 只計算未確認的訂單金額
-    total_price = sum(order['price'] for order in orders if order['status'] != '已確認')
+    try:
+        # 插入評論
+        cursor.execute('''
+            INSERT INTO reviews (user_id, reviewed_user_id, order_id, rating, comment)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (session['user_id'], reviewed_user_id, order_id, rating, comment))
 
-    conn.close()
-    return render_template('orders.html', orders=orders, total_price=total_price)
+        conn.commit()
+        flash('評論已提交。', 'success')
+    except sqlite3.Error as e:
+        flash(f'發生錯誤：{e}', 'danger')
+        print(f'SQLite Error: {e}')  # 打印錯誤信息到控制台
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
+    return redirect(url_for('orders'))
 
-
-
-
-@app.route('/confirm_for_delivery/<int:order_id>', methods=['POST'])
-def confirm_for_delivery(order_id):
-    if 'user_id' not in session or session['role'] != 'merchant':
+@app.route('/complete_order/<int:order_id>', methods=['POST'])
+def complete_order(order_id):
+    if 'user_id' not in session or session['role'] != 'customer':
         return redirect(url_for('login'))
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
-        # 獲取商家確認的訂單
-        order = cursor.execute('SELECT * FROM merchant_orders WHERE id = ?', (order_id,)).fetchone()
+        # 更新訂單狀態為已完成
+        cursor.execute('UPDATE orders SET status = "已完成" WHERE id = ?', (order_id,))
         
-        if order is None:
-            flash('未找到訂單！', 'danger')
-            return redirect(url_for('menu'))
-
-        # 將訂單插入到外送訂單列表
+        # 獲取訂單詳細信息
+        order = cursor.execute('SELECT * FROM orders WHERE id = ?', (order_id,)).fetchone()
+        
+        # 記錄交易
         cursor.execute('''
-            INSERT INTO delivery_orders (customer_id, merchant_id, delivery_person_id, item_id, status, price, item_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (order['customer_id'], order['merchant_id'], None, order['item_id'], '待配送', order['price'], order['item_name']))
-       
-        # 更新訂單為已通知外送員
-        cursor.execute('UPDATE merchant_orders SET delivery_status = "已通知" WHERE id = ?', (order_id,))
+            INSERT INTO transactions (user_id, amount, transaction_type)
+            VALUES (?, ?, '支付')
+        ''', (order['customer_id'], order['price']))
+
+        # 更新商家報告
+        cursor.execute('''
+            INSERT INTO reports (user_id, report_type, total_received)
+            VALUES (?, '商家', ?)
+            ON CONFLICT(user_id, report_type) DO UPDATE SET
+            total_received = total_received + excluded.total_received
+        ''', (order['merchant_id'], order['price']))
+
+        # 更新外送員報告
+        if order['delivery_person_id']:
+            cursor.execute('''
+                INSERT INTO reports (user_id, report_type, total_orders)
+                VALUES (?, '外送員', 1)
+                ON CONFLICT(user_id, report_type) DO UPDATE SET
+                total_orders = total_orders + 1
+            ''', (order['delivery_person_id'],))
+
+        # 更新客戶報告
+        cursor.execute('''
+            INSERT INTO reports (user_id, report_type, total_due)
+            VALUES (?, '客戶', ?)
+            ON CONFLICT(user_id, report_type) DO UPDATE SET
+            total_due = total_due + excluded.total_due
+        ''', (order['customer_id'], order['price']))
+
         conn.commit()
-        flash('订单已确认并发送给外送小哥！', 'success')
-    except Exception as e:
+        flash('訂單已完成。', 'success')
+    except sqlite3.Error as e:
         flash(f'發生錯誤：{e}', 'danger')
+        print(f'SQLite Error: {e}')  # 打印錯誤信息到控制台
         conn.rollback()
     finally:
         cursor.close()
         conn.close()
 
-    return redirect(url_for('menu'))
+    return redirect(url_for('orders'))
+
 
 
 
@@ -621,34 +681,30 @@ def accept_order(order_id):
 
     return redirect(url_for('delivery_orders'))
 
-
-
-
-
-
-
-# 编辑菜品
-@app.route('/menu/edit/<int:item_id>', methods=['GET', 'POST'])
-def edit_item(item_id):
-    if 'user_id' not in session or session['role'] != 'merchant':
+@app.route('/view_delivery_reviews/<int:user_id>', methods=['GET'])
+def view_delivery_reviews(user_id):
+    if 'user_id' not in session or session['role'] != 'delivery_person':
         return redirect(url_for('login'))
 
     conn = get_db_connection()
-    if request.method == 'POST':
-        item_name = request.form['item_name']
-        description = request.form['description']
-        price = float(request.form['price'])
+    cursor = conn.cursor()
 
-        conn.execute('UPDATE menu SET item_name = ?, description = ?, price = ? WHERE id = ? AND merchant_id = ?',(item_name, description, price, item_id, session['user_id']))
-        conn.commit()
-        conn.close()
-        flash('菜品更新成功！', 'success')
-        return redirect(url_for('menu'))
+    reviews = cursor.execute('''
+        SELECT reviews.rating, reviews.comment, users.username, reviews.created_at
+        FROM reviews
+        JOIN users ON reviews.user_id = users.id
+        WHERE reviews.reviewed_user_id = ?
+    ''', (user_id,)).fetchall()
 
-    menu_item = conn.execute('SELECT * FROM menu WHERE id = ? AND merchant_id = ?',(item_id, session['user_id'])).fetchone()
+    cursor.close()
     conn.close()
 
-    return render_template('edit_item.html', item=menu_item)
+    return render_template('re.html', reviews=reviews)
+
+
+
+
+
 
 
 
@@ -677,69 +733,13 @@ def delivery_orders():
 
     return render_template('delivery_orders.html', delivery_orders=orders)
 
-@app.route('/complete_order/<int:order_id>', methods=['POST'])
-def complete_order(order_id):
-    if 'user_id' not in session or session['role'] != 'customer':
-        return redirect(url_for('login'))
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    try:
-        # 更新訂單狀態為已完成
-        cursor.execute('UPDATE orders SET status = "已完成" WHERE id = ?', (order_id,))
-        
-        # 獲取訂單詳細信息
-        order = cursor.execute('SELECT * FROM orders WHERE id = ?', (order_id,)).fetchone()
-        
-        # 記錄交易
-        cursor.execute('''
-            INSERT INTO transactions (user_id, amount, transaction_type)
-            VALUES (?, ?, '支付')
-        ''', (order['customer_id'], order['price']))
-
-        # 更新商家報告
-        cursor.execute('''
-            INSERT INTO reports (user_id, report_type, total_received)
-            VALUES (?, '商家', ?)
-            ON CONFLICT(user_id, report_type) DO UPDATE SET
-            total_received = total_received + excluded.total_received
-        ''', (order['merchant_id'], order['price']))
-
-        # 更新外送員報告
-        if order['delivery_person_id']:
-            cursor.execute('''
-                INSERT INTO reports (user_id, report_type, total_orders)
-                VALUES (?, '外送員', 1)
-                ON CONFLICT(user_id, report_type) DO UPDATE SET
-                total_orders = total_orders + 1
-            ''', (order['delivery_person_id'],))
-
-        # 更新客戶報告
-        cursor.execute('''
-            INSERT INTO reports (user_id, report_type, total_due)
-            VALUES (?, '客戶', ?)
-            ON CONFLICT(user_id, report_type) DO UPDATE SET
-            total_due = total_due + excluded.total_due
-        ''', (order['customer_id'], order['price']))
-
-        conn.commit()
-        flash('訂單已完成。', 'success')
-    except sqlite3.Error as e:
-        flash(f'發生錯誤：{e}', 'danger')
-        print(f'SQLite Error: {e}')  # 打印錯誤信息到控制台
-        conn.rollback()
-    finally:
-        cursor.close()
-        conn.close()
-
-    return redirect(url_for('menu'))
 
 
 
 @app.route('/reports/<string:report_type>', methods=['GET'])
 def view_reports(report_type):
-    if 'user_id' not in session:
+    if 'user_id' not in session or session['role'] != 'settle':
         return redirect(url_for('login'))
 
     conn = get_db_connection()
