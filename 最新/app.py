@@ -346,21 +346,26 @@ def merchant_reject_order(order_id):
     cursor = conn.cursor()
 
     try:
-        # 更新訂單為已拒絕
-        cursor.execute('UPDATE merchant_orders SET acceptance_status = "已拒絕" WHERE id = ?', (order_id,))
-        cursor.execute('UPDATE orders SET acceptance_status = "已拒絕" WHERE id = ?', (order_id,))
+        print(f"Updating order {order_id} status to '已拒絕'")
+
+        cursor.execute('UPDATE merchant_orders SET acceptance_status = ? WHERE id = ?', ("已拒絕", order_id))
+        cursor.execute('UPDATE orders SET acceptance_status = ? WHERE id = ?', ("已拒絕", order_id))
+
+        print("merchant_orders update result:", cursor.rowcount)
+        print("orders update result:", cursor.rowcount)
+
         conn.commit()
         flash('訂單已拒絕。', 'success')
+
     except sqlite3.Error as e:
         flash(f'發生錯誤：{e}', 'danger')
-        print(f'SQLite Error: {e}')  # 打印錯誤信息到控制台
+        print(f'SQLite Error: {e}')
         conn.rollback()
     finally:
         cursor.close()
         conn.close()
 
-    return redirect(url_for('menu'))
-
+    return redirect(url_for('menu'))  # 重定向到訂單頁面
 
 
 
@@ -396,27 +401,43 @@ def view_reviews(user_id):
 
 
 
-@app.route('/orders', methods=['GET', 'POST'])
+@app.route('/orders', methods=['GET'])
 def orders():
-    if 'user_id' not in session or session['role'] != 'customer':
+    if 'user_id' not in session or session ['role']!='customer':
         return redirect(url_for('login'))
 
     conn = get_db_connection()
-    orders = conn.execute('''
-        SELECT orders.id AS id,
-               menu.item_name AS item_name,
-               menu.price AS price,
-               orders.status AS status
-        FROM orders
-        JOIN menu ON orders.item_id = menu.id
-        WHERE orders.customer_id = ?
-    ''', (session['user_id'],)).fetchall()
+    cursor = conn.cursor()
 
-    # 只計算未確認的訂單金額
-    total_price = sum(order['price'] for order in orders if order['status'] != '已確認')
+    try:
+        orders = cursor.execute('''
+            SELECT orders.id AS id,
+                menu.item_name AS item_name,
+                menu.price AS price,
+                orders.status AS status,
+                orders.merchant_id AS merchant_id,
+                orders.delivery_person_id AS delivery_person_id,
+                merchant_orders.acceptance_status AS merchant_acceptance_status
+            FROM orders
+            JOIN menu ON orders.item_id = menu.id
+            LEFT JOIN merchant_orders ON orders.id = merchant_orders.id
+            WHERE orders.customer_id = ?
+        ''', (session['user_id'],)).fetchall()
 
-    conn.close()
-    return render_template('orders.html', orders=orders, total_price=total_price)
+        # 只計算未確認的訂單金額
+        total_price = sum(order['price'] for order in orders if order['status'] != '已確認')
+
+        return render_template('orders.html', orders=orders, total_price=total_price)
+    except sqlite3.Error as e:
+        print(f'SQLite Error: {e}')
+        flash(f'發生錯誤：{e}', 'danger')
+    finally:
+        cursor.close()
+        conn.close()
+
+    return render_template('orders.html', orders=[], total_price=0)
+
+
 
 # 顾客下单功能
 @app.route('/place_order/<int:item_id>', methods=['POST'])
@@ -425,26 +446,40 @@ def place_order(item_id):
         return redirect(url_for('login'))
 
     conn = get_db_connection()
+    cursor = conn.cursor()
 
-    # 获取菜品信息
-    item = conn.execute('SELECT * FROM menu WHERE id = ?', (item_id,)).fetchone()
+    try:
+        # 获取菜品信息
+        item = cursor.execute('SELECT * FROM menu WHERE id = ?', (item_id,)).fetchone()
 
-    # 获取价格和菜品名称
-    price = item['price']
-    item_name = item['item_name']
+        # 确保获取到菜品信息
+        if item is None:
+            flash('菜品不存在！', 'danger')
+            return redirect(url_for('menu'))
 
-    # 创建订单
-    conn.execute('''
-        INSERT INTO orders (customer_id, merchant_id, item_id, item_name, price, status)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (session['user_id'], item['merchant_id'], item['id'], item_name, price, '待处理'))
-    conn.commit()
-    conn.close()
+        # 获取价格和菜品名称
+        price = item['price']
+        item_name = item['item_name']
 
+        # 创建订单
+        cursor.execute('''
+            INSERT INTO orders (customer_id, merchant_id, item_id, item_name, price, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (session['user_id'], item['merchant_id'], item['id'], item_name, price, '待处理'))
 
+        conn.commit()
+        flash('訂單已下單！', 'success')
+    except sqlite3.Error as e:
+        flash(f'SQLite Error: {e}', 'danger')
+        print(f'SQLite Error: {e}')
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
-    flash('訂單已下單！', 'success')
     return redirect(url_for('orders'))  # 重定向到订单页面
+
+
 
 @app.route('/delete_order/<int:order_id>', methods=['POST'])
 def delete_order(order_id):
@@ -509,9 +544,9 @@ def confirm_order():
             ''', (session['user_id'], '已接單', order_id))
             
             cursor.execute('''
-                INSERT INTO merchant_orders (customer_id, merchant_id, item_id, status, delivery_status, price, item_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (order['customer_id'], order['merchant_id'], order['item_id'], '已確認', '待處理', order['price'], order['item_name']))
+                INSERT INTO merchant_orders (id,customer_id, merchant_id, item_id, status, delivery_status, price, item_name)
+                VALUES (?,?, ?, ?, ?, ?, ?, ?)
+            '''), ((order['id'],order['customer_id'], order['merchant_id'], order['item_id'], '已確認', '待處理', order['price'], order['item_name']))
             
             cursor.execute('UPDATE orders SET status = "已確認" WHERE id = ?', (order['id'],))
 
