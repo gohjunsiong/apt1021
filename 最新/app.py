@@ -520,41 +520,43 @@ def confirm_order():
         flash('請選擇至少一個訂單進行確認！', 'warning')
         return redirect(url_for('orders'))
 
-    # 將選中的訂單插入到商家訂單列表並更新狀態為“已確認”
-    for order_id in order_ids:
-        order = cursor.execute('''
-            SELECT orders.id AS id,
-                   orders.customer_id AS customer_id,
-                   orders.merchant_id AS merchant_id,
-                   orders.item_id AS item_id,
-                   menu.item_name AS item_name,
-                   menu.price AS price,
-                   orders.status AS status
-            FROM orders
-            JOIN menu ON orders.item_id = menu.id
-            WHERE orders.id = ? AND orders.customer_id = ?
-        ''', (order_id, session['user_id'])).fetchone()
-        
-        if order:
-            # 更新外送員的狀態為“已接單”
-            cursor.execute(''' 
-                UPDATE delivery_orders 
-                SET delivery_person_id = ?, status = ? 
-                WHERE id = ? 
-            ''', (session['user_id'], '已接單', order_id))
+    try:
+        for order_id in order_ids:
+            order = cursor.execute('''
+                SELECT orders.id AS id,
+                       orders.customer_id AS customer_id,
+                       orders.merchant_id AS merchant_id,
+                       orders.item_id AS item_id,
+                       menu.item_name AS item_name,
+                       menu.price AS price,
+                       orders.status AS status
+                FROM orders
+                JOIN menu ON orders.item_id = menu.id
+                WHERE orders.id = ? AND orders.customer_id = ?
+            ''', (order_id, session['user_id'])).fetchone()
             
-            cursor.execute('''
-                INSERT INTO merchant_orders (id,customer_id, merchant_id, item_id, status, delivery_status, price, item_name)
-                VALUES (?,?, ?, ?, ?, ?, ?, ?)
-            '''), ((order['id'],order['customer_id'], order['merchant_id'], order['item_id'], '已確認', '待處理', order['price'], order['item_name']))
-            
-            cursor.execute('UPDATE orders SET status = "已確認" WHERE id = ?', (order['id'],))
+            if order:
+                # 插入訂單到 merchant_orders 表，使用相同的訂單 ID
+                cursor.execute('''
+                    INSERT INTO merchant_orders (order_id, customer_id, merchant_id, item_id, item_name, price, status, acceptance_status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (order['id'], order['customer_id'], order['merchant_id'], order['item_id'], order['item_name'], order['price'], '已確認', '待處理'))
+                
+                # 更新 orders 表中訂單的狀態
+                cursor.execute('UPDATE orders SET status = "已確認" WHERE id = ?', (order['id'],))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        flash('訂單已確認並通知商家！', 'success')
+    except sqlite3.Error as e:
+        flash(f'SQLite Error: {e}', 'danger')
+        print(f'SQLite Error: {e}')
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
 
-    flash('訂單已確認並通知商家！', 'success')
     return redirect(url_for('orders'))
+
 
 @app.route('/add_review/<int:order_id>', methods=['POST'])
 def add_review(order_id):
@@ -824,28 +826,32 @@ def clear_orders():
 # 執行清空訂單表操作
 clear_orders()
 """
-
-"""import sqlite3
+"""
+import sqlite3
 
 # 連接到資料庫
 conn = sqlite3.connect('new_delivery.db')  # 請將 'your_database_file.db' 替換為你的資料庫檔案名稱
 cursor = conn.cursor()
 
 # 刪除現有的 merchant_orders 資料表（如果存在）
-cursor.execute("DROP TABLE IF EXISTS reviews")
+cursor.execute("DROP TABLE IF EXISTS merchant_orders")
 
 # 重新創建 merchant_orders 資料表
-cursor.execute('''CREATE TABLE IF NOT EXISTS reviews (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    reviewed_user_id INTEGER NOT NULL,
-                    order_id INTEGER NOT NULL,
-                    rating INTEGER NOT NULL,
-                    comment TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users (id),
-                    FOREIGN KEY (reviewed_user_id) REFERENCES users (id),
-                    FOREIGN KEY (order_id) REFERENCES orders (id))''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS merchant_orders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        order_id INTEGER,
+                        customer_id INTEGER NOT NULL,
+                        merchant_id INTEGER NOT NULL,
+                        item_id INTEGER NOT NULL,
+                        status TEXT NOT NULL,
+                        delivery_status TEXT DEFAULT '未接單',
+                        acceptance_status TEXT DEFAULT '未處理',
+                        price REAL NOT NULL,
+                        item_name TEXT NOT NULL,
+                        FOREIGN KEY (customer_id) REFERENCES users (id),
+                        FOREIGN KEY (merchant_id) REFERENCES users (id),
+                        FOREIGN KEY (item_id) REFERENCES menu (id),
+                        FOREIGN KEY (order_id) REFERENCES orders (id))''')
 
 # 提交更改
 conn.commit()
