@@ -44,10 +44,28 @@
             document.getElementById(`review-modal-${orderId}`).style.display = 'none';
         }
 
-        function enableReviewButtons() {
-            document.querySelectorAll('.btn-review').forEach(function(button) {
-                button.style.display = 'inline-block';
+        function submitOrderForm() {
+            const selectedOrders = document.querySelectorAll('input[name="order_ids"]:checked');
+            if (selectedOrders.length === 0) {
+                alert("請選擇至少一個訂單來確認下單！");
+                return;
+            }
+
+            selectedOrders.forEach(function(checkbox) {
+                checkbox.disabled = true;
+                const orderId = checkbox.value;
+                localStorage.setItem(`order_${orderId}_confirmed`, 'true');
+                const reviewButton = checkbox.closest('li').querySelector('.btn-review');
+                const deleteButton = checkbox.closest('li').querySelector('.btn-danger');
+                if (reviewButton) {
+                    reviewButton.style.display = 'inline-block';
+                }
+                if (deleteButton) {
+                    deleteButton.style.display = 'none';
+                }
             });
+
+            document.getElementById('confirm-order-form').submit();
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -62,30 +80,18 @@
                 checkbox.addEventListener('change', calculateTotal);
             });
 
-            document.getElementById('confirm-order').addEventListener('click', function(event) {
-                event.preventDefault();
-                const selectedOrders = document.querySelectorAll('input[name="order_ids"]:checked');
-                if (selectedOrders.length === 0) {
-                    alert("請選擇至少一個訂單來確認下單！");
-                    return;
-                }
-
-                selectedOrders.forEach(function(checkbox) {
-                    checkbox.disabled = true;
-                    const orderId = checkbox.value;
-                    localStorage.setItem(`order_${orderId}_confirmed`, 'true');
-                    checkbox.closest('li').querySelector('.btn-review').style.display = 'inline-block';
-                });
-
-                document.getElementById('total-price').textContent = `總金額: $0.00`;
-                alert("訂單已確認！評論功能已啟用。");
-            });
-
             document.querySelectorAll('input[name="order_ids"]').forEach(function(checkbox) {
                 const orderId = checkbox.value;
                 if (localStorage.getItem(`order_${orderId}_confirmed`) === 'true') {
                     checkbox.disabled = true;
-                    checkbox.closest('li').querySelector('.btn-review').style.display = 'inline-block';
+                    const reviewButton = checkbox.closest('li').querySelector('.btn-review');
+                    const deleteButton = checkbox.closest('li').querySelector('.btn-danger');
+                    if (reviewButton) {
+                        reviewButton.style.display = 'inline-block';
+                    }
+                    if (deleteButton) {
+                        deleteButton.style.display = 'none';
+                    }
                 }
             });
 
@@ -106,7 +112,7 @@
 
     <main class="container">
         <h2>您的訂單列表</h2>
-        <form>
+        <form id="confirm-order-form" action="{{ url_for('confirm_order') }}" method="POST">
             <ul class="order-list">
                 {% if orders %}
                     {% for order in orders %}
@@ -155,7 +161,7 @@
                                                 <option value="{{ order.delivery_person_id }}">外送員 (ID: {{ order.delivery_person_id }})</option>
                                             {% endif %}
                                         </select>
-
+                                        
                                         <button type="submit" class="btn btn-primary">提交評論</button>
                                     </form>
                                 </div>
@@ -165,7 +171,8 @@
                     <li class="order-total">
                         <strong id="total-price">總金額: $0.00</strong>
                     </li>
-                    <button id="confirm-order" class="btn btn-primary">確認下單</button>
+                    <button id="confirm-order" class="btn btn-primary" type="button" onclick="submitOrderForm()">確認下單</button>
+                    
                 {% else %}
                     <li class="empty-orders">您沒有任何訂單。</li>
                 {% endif %}
@@ -211,9 +218,9 @@
         .close:hover,
         .close:focus {
             color: black;
-            text-decoration: none;
             cursor: pointer;
         }
     </style>
+
 </body>
 </html>

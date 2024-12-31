@@ -4,7 +4,7 @@ db = SQLAlchemy()
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
+    username = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(100), nullable=False)
     role = db.Column(db.String(50), nullable=False)  # 'customer', 'merchant', 'delivery_person'
@@ -33,6 +33,7 @@ class Order(db.Model):
     price = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(100), nullable=False)  # 'pending', 'in progress', 'delivered'
     acceptance_status = db.Column(db.String(100), nullable=False, default='待確認')  # '待確認', '已接受', '已拒絕'
+    delivery_status = db.Column(db.String(100), nullable=False, default='待確認')  # 添加這一行
     user = db.relationship('User', backref=db.backref('orders', lazy=True))
     restaurant = db.relationship('Restaurant', backref=db.backref('orders', lazy=True))
     menu_item = db.relationship('MenuItem', backref=db.backref('orders', lazy=True))
@@ -55,6 +56,23 @@ class Review(db.Model):
     order = db.relationship('Order', backref=db.backref('reviews', lazy=True))
     user = db.relationship('User', backref=db.backref('reviews', lazy=True))
 
-# Initialize the database
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    transaction_type = db.Column(db.String(100), nullable=False)  # 'order_completed', etc.
+    user = db.relationship('User', backref=db.backref('transactions', lazy=True))
+
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    report_type = db.Column(db.String(100), nullable=False)  # 'merchant', 'delivery_person', 'customer'
+    total_received = db.Column(db.Float, default=0)
+    total_orders = db.Column(db.Integer, default=0)
+    total_due = db.Column(db.Float, default=0)
+    user = db.relationship('User', backref=db.backref('reports', lazy=True))
+
 def init_db():
     db.create_all()
+
+

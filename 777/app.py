@@ -513,15 +513,15 @@ def confirm_order():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # 獲取選中的訂單 ID
     order_ids = request.form.getlist('order_ids')
 
     if not order_ids:
-        flash('請選擇至少一個訂單進行確認！', 'warning')
+        flash('請選擇至少一個訂單來確認下單！', 'warning')
         return redirect(url_for('orders'))
 
     try:
         for order_id in order_ids:
+            # 獲取訂單信息
             order = cursor.execute('''
                 SELECT orders.id AS id,
                        orders.customer_id AS customer_id,
@@ -534,7 +534,7 @@ def confirm_order():
                 JOIN menu ON orders.item_id = menu.id
                 WHERE orders.id = ? AND orders.customer_id = ?
             ''', (order_id, session['user_id'])).fetchone()
-            
+
             if order:
                 # 插入訂單到 merchant_orders 表，使用相同的訂單 ID
                 cursor.execute('''
@@ -556,6 +556,8 @@ def confirm_order():
         conn.close()
 
     return redirect(url_for('orders'))
+
+
 
 
 @app.route('/add_review/<int:order_id>', methods=['POST'])
