@@ -166,7 +166,7 @@ def login():
             # 配送員管理頁面 
             elif user['role'] == 'settle': return redirect(url_for('view_reports', report_type='settle')) # 結算管理頁面
         else:
-            flash('用户名或密码错误，请重试。', 'error')
+            flash('帳號或密碼錯誤，請重試。', 'error')
 
     return render_template('login.html')
 
@@ -313,7 +313,7 @@ def confirm_for_delivery(order_id):
         # 更新訂單為已通知外送員
         cursor.execute('UPDATE merchant_orders SET delivery_status = "已通知" WHERE id = ?', (order_id,))
         conn.commit()
-        flash('订单已确认并发送给外送小哥！', 'success')
+        flash('訂單已確認並已通知外送員！', 'success')
     except Exception as e:
         print(f'發生錯誤：{e}')
         flash(f'發生錯誤：{e}', 'danger')
