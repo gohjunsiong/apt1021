@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>結算管理</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- 頁面頂部導航欄 -->
+    <header class="navbar">
+        <h1>💰 結算管理</h1>
+        <div>
+            <p>歡迎，{{ session['username'] }}！</p>
+            <form action="{{ url_for('logout') }}" method="POST" class="inline-form">
+                <button class="btn btn-secondary">登出</button>
+            </form>
+        </div>
+    </header>
+
+    <!-- 頁面主要內容 -->
+    <main class="container">
+        <!-- 商家結算 -->
+        <h2>📊 商家應收金額</h2>
+        <ul class="settlement-list">
+            {% if merchant_reports %}
+                {% set total_merchant_amount = 0 %}
+                {% set total_actual_received = 0 %}
+                {% for report in merchant_reports %}
+                    <li class="settlement-item">
+                        <span>商家: {{ report.merchant_name }}</span> - 
+                        <span>應收金額: ${{ report.total_received }}</span> - 
+                        <span>實際收入: ${{ report.total_received * 0.8 }}</span>
+                    </li>
+                    {% set total_merchant_amount = total_merchant_amount + report.total_received %}
+                    {% set total_actual_received = total_actual_received + (report.total_received * 0.8) %}
+                {% endfor %}
+               
+            {% else %}
+                <li class="empty-settlements">沒有商家應收金額。</li>
+            {% endif %}
+        </ul>
+
+        <!-- 外送員結算 -->
+        <h2>🚴 各小哥接單數與應收金額</h2>
+        <ul class="settlement-list">
+            {% if delivery_reports %}
+                {% for report in delivery_reports %}
+                    <li class="settlement-item">
+                        <span>外送員: {{ report.delivery_name }}</span> - 
+                        <span>接單數: {{ report.total_orders }}</span> - 
+                        <span>收入金額: ${{ report.total_received }}</span> - 
+                      
+                    </li>
+                {% endfor %}
+            {% else %}
+                <li class="empty-settlements">沒有外送員結算金額。</li>
+            {% endif %}
+        </ul>
+
+        <!-- 客戶結算 -->
+        <h2>💳 各客戶應付金額</h2>
+        <ul class="settlement-list">
+            {% if customer_reports %}
+                {% set total_customer_due = 0 %}
+                {% for report in customer_reports %}
+                    <li class="settlement-item">
+                        <span>客戶: {{ report.customer_name }}</span> - 
+                        <span>應付金額: ${{ report.total_due }}</span>
+                    </li>
+                    {% set total_customer_due = total_customer_due + report.total_due %}
+                {% endfor %}
+               
+            {% else %}
+                <li class="empty-settlements">沒有客戶應付金額。</li>
+            {% endif %}
+        </ul>
+    </main>
+
+    <!-- 頁面底部 -->
+    <footer>
+        <p>© 2024 結算管理系统</p>
+    </footer>
+</body>
+</html>
