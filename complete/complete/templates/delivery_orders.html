@@ -18,11 +18,12 @@
     </header>
 
     <main class="container">
-        <h2>訂單列表</h2>
+        <h2>订单列表</h2>
         <ul class="order-list">
             {% if delivery_orders %}
                 {% for order in delivery_orders %}
                     <li class="order-item">
+                        <span>訂單編號：{{ order.id }}</span><br>
                         <span>客户：{{ order.customer_name }}</span><br>
                         <span>菜品：{{ order.item_name }}</span><br>
                         <span>價格：${{ order.price }} 元</span><br>
